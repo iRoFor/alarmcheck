@@ -16,6 +16,7 @@ import {
   Calendar,
   ChevronDown,
   ChevronUp,
+  Save,
 } from 'lucide-react';
 
 function App() {
@@ -65,6 +66,36 @@ function App() {
 
   const handleExport = () => {
     exportToExcel(records, `РЗА_план_${currentYear}.xlsx`);
+  };
+
+  const handleDownloadApp = async () => {
+    try {
+      // Загружаем оригинальный HTML страницы
+      const response = await fetch(window.location.href);
+      const html = await response.text();
+      // Создаём Blob и скачиваем
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'Планирование_РЗА.html';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      // Альтернативный способ — через document
+      const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'Планирование_РЗА.html';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
   };
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -154,6 +185,18 @@ function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-6">
+        {/* Download hint banner */}
+        <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4 flex items-start gap-3">
+          <Save size={20} className="text-orange-600 mt-0.5 flex-shrink-0" />
+          <div className="text-sm">
+            <p className="font-semibold text-orange-800">💾 Как сохранить программу на компьютер:</p>
+            <p className="text-orange-700 mt-0.5">
+              Нажмите кнопку <strong>«Скачать программу»</strong> выше — скачается файл <code className="bg-orange-100 px-1 rounded">Планирование_РЗА.html</code>. 
+              Откройте его двойным кликом — программа заработает в любом браузере без интернета.
+            </p>
+          </div>
+        </div>
+
         {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
           <div className="bg-white rounded-lg p-3 shadow-sm border-l-4 border-gray-400">
@@ -205,6 +248,14 @@ function App() {
                 className="hidden"
               />
             </label>
+
+            <button
+              onClick={handleDownloadApp}
+              className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              title="Скачать программу как HTML-файл для работы без интернета"
+            >
+              <Save size={16} /> Скачать программу
+            </button>
 
             <div className="flex-1" />
 
