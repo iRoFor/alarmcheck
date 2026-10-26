@@ -68,47 +68,42 @@ function App() {
     exportToExcel(records, `РЗА_план_${currentYear}.xlsx`);
   };
 
-  const handleDownloadApp = async () => {
-    try {
-      // Получаем оригинальный HTML страницы через fetch
-      const response = await fetch(window.location.href);
-      let html = await response.text();
-      
-      // Убираем атрибуты, которые мешают работе с file:// протоколом
-      // crossorigin — вызывает CORS ошибки при file://
-      // type="module" — заменяем на defer (модули не работают с file:// в некоторых браузерах)
-      html = html.replace(/\s+crossorigin/g, '');
-      html = html.replace(/type="module"/g, 'defer');
-      
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'Планирование_РЗА.html';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch {
-      // Запасной вариант — через клонирование DOM
-      const clone = document.documentElement.cloneNode(true) as HTMLElement;
-      const cloneRoot = clone.querySelector('#root');
-      if (cloneRoot) cloneRoot.innerHTML = '';
-      
-      let html = '<!DOCTYPE html>\n' + clone.outerHTML;
-      html = html.replace(/\s+crossorigin/g, '');
-      html = html.replace(/type="module"/g, 'defer');
-      
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'Планирование_РЗА.html';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+  const handleDownloadApp = () => {
+    // Определяем, работаем ли мы в режиме разработки
+    const isDevMode = document.querySelector('script[src*="/@vite/client"]') !== null;
+    
+    if (isDevMode) {
+      alert(
+        '⚠️ Скачивание программы недоступно в режиме предпросмотра.\n\n' +
+        'Программа уже работает прямо сейчас в браузере — вы можете пользоваться всеми функциями.\n\n' +
+        'Для получения автономного HTML-файла, который можно открыть без интернета, ' +
+        'необходимо сначала собрать production-версию проекта.'
+      );
+      return;
     }
+
+    // Production-режим: весь код уже inline в HTML
+    // Клонируем документ
+    const clone = document.documentElement.cloneNode(true) as HTMLElement;
+    
+    // Очищаем #root, чтобы React мог инициализироваться заново
+    const cloneRoot = clone.querySelector('#root');
+    if (cloneRoot) cloneRoot.innerHTML = '';
+    
+    // Убираем атрибуты, мешающие работе с file:// протоколом
+    let html = '<!DOCTYPE html>\n' + clone.outerHTML;
+    html = html.replace(/\s+crossorigin/g, '');
+    html = html.replace(/type="module"/g, 'defer');
+    
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Планирование_РЗА.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -206,6 +201,9 @@ function App() {
             <p className="text-orange-700 mt-0.5">
               Нажмите кнопку <strong>«Скачать программу»</strong> выше — скачается файл <code className="bg-orange-100 px-1 rounded">Планирование_РЗА.html</code>. 
               Откройте его двойным кликом — программа заработает в любом браузере без интернета.
+            </p>
+            <p className="text-orange-600 mt-1 text-xs">
+              ℹ️ Программа работает прямо сейчас — все функции доступны. Данные сохраняются в браузере.
             </p>
           </div>
         </div>
