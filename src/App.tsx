@@ -70,10 +70,16 @@ function App() {
 
   const handleDownloadApp = async () => {
     try {
-      // Загружаем оригинальный HTML страницы
+      // Получаем оригинальный HTML страницы через fetch
       const response = await fetch(window.location.href);
-      const html = await response.text();
-      // Создаём Blob и скачиваем
+      let html = await response.text();
+      
+      // Убираем атрибуты, которые мешают работе с file:// протоколом
+      // crossorigin — вызывает CORS ошибки при file://
+      // type="module" — заменяем на defer (модули не работают с file:// в некоторых браузерах)
+      html = html.replace(/\s+crossorigin/g, '');
+      html = html.replace(/type="module"/g, 'defer');
+      
       const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -84,8 +90,15 @@ function App() {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch {
-      // Альтернативный способ — через document
-      const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+      // Запасной вариант — через клонирование DOM
+      const clone = document.documentElement.cloneNode(true) as HTMLElement;
+      const cloneRoot = clone.querySelector('#root');
+      if (cloneRoot) cloneRoot.innerHTML = '';
+      
+      let html = '<!DOCTYPE html>\n' + clone.outerHTML;
+      html = html.replace(/\s+crossorigin/g, '');
+      html = html.replace(/type="module"/g, 'defer');
+      
       const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
