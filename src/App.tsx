@@ -39,6 +39,7 @@ function App() {
   const [showLegend, setShowLegend] = useState(true);
   const [showFilters, setShowFilters] = useState(true);
   const [importStatus, setImportStatus] = useState<string>('');
+  const [showInstructions, setShowInstructions] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentYear = new Date().getFullYear();
@@ -184,9 +185,18 @@ function App() {
                 <p className="text-blue-200 text-sm">Система управления обслуживанием устройств релейной защиты</p>
               </div>
             </div>
-            <div className="text-right text-sm text-blue-200">
-              <div>{monthNames[currentMonth - 1]} {currentYear}</div>
-              <div className="text-xs">Всего записей: {records.length}</div>
+            <div className="text-right text-sm text-blue-200 flex items-center gap-3">
+              <div>
+                <div>{monthNames[currentMonth - 1]} {currentYear}</div>
+                <div className="text-xs">Всего записей: {records.length}</div>
+              </div>
+              <button
+                onClick={() => setShowInstructions(true)}
+                className="bg-white/20 hover:bg-white/30 text-white px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center gap-1"
+                title="Инструкция по установке"
+              >
+                📖 Инструкция
+              </button>
             </div>
           </div>
         </div>
@@ -196,11 +206,13 @@ function App() {
         {/* Download hint banner */}
         <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4 flex items-start gap-3">
           <Save size={20} className="text-orange-600 mt-0.5 flex-shrink-0" />
-          <div className="text-sm">
+          <div className="text-sm flex-1">
             <p className="font-semibold text-orange-800">💾 Как сохранить программу на компьютер:</p>
             <p className="text-orange-700 mt-0.5">
-              Нажмите кнопку <strong>«Скачать программу»</strong> выше — скачается файл <code className="bg-orange-100 px-1 rounded">Планирование_РЗА.html</code>. 
-              Откройте его двойным кликом — программа заработает в любом браузере без интернета.
+              Для получения автономного HTML-файла нужно собрать production-версию. 
+              <button onClick={() => setShowInstructions(true)} className="underline font-semibold hover:text-orange-900 ml-1">
+                Показать инструкцию →
+              </button>
             </p>
             <p className="text-orange-600 mt-1 text-xs">
               ℹ️ Программа работает прямо сейчас — все функции доступны. Данные сохраняются в браузере.
@@ -512,6 +524,134 @@ function App() {
           currentYear={currentYear}
           monthNames={monthNames}
         />
+      )}
+
+      {/* Instructions Modal */}
+      {showInstructions && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b">
+              <h2 className="text-lg font-bold text-gray-800">
+                📖 Инструкция: как получить автономный HTML-файл
+              </h2>
+              <button onClick={() => setShowInstructions(false)} className="text-gray-400 hover:text-gray-600">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-sm text-gray-700">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="font-semibold text-blue-800 mb-2">💡 Что это значит?</p>
+                <p className="text-blue-700">
+                  Сейчас программа работает в режиме предпросмотра. Чтобы получить файл, 
+                  который можно открыть двойным кликом без интернета, нужно один раз 
+                  выполнить сборку на вашем компьютере.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="border-l-4 border-green-500 pl-4">
+                  <h3 className="font-bold text-gray-800 mb-2">Шаг 1. Установите Node.js</h3>
+                  <p className="mb-2">Скачайте и установите Node.js с официального сайта:</p>
+                  <a 
+                    href="https://nodejs.org/ru" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    <Download size={16} />
+                    Скачать Node.js (версия LTS)
+                  </a>
+                  <p className="mt-2 text-xs text-gray-600">
+                    При установке оставляйте все галочки по умолчанию.
+                  </p>
+                </div>
+
+                <div className="border-l-4 border-green-500 pl-4">
+                  <h3 className="font-bold text-gray-800 mb-2">Шаг 2. Скачайте проект</h3>
+                  <p className="mb-2">
+                    Скачайте папку с проектом (все файлы программы) в любое место на компьютере, 
+                    например в <code className="bg-gray-100 px-2 py-1 rounded">C:\Программы\РЗА</code>
+                  </p>
+                </div>
+
+                <div className="border-l-4 border-green-500 pl-4">
+                  <h3 className="font-bold text-gray-800 mb-2">Шаг 3. Откройте командную строку</h3>
+                  <p className="mb-2">
+                    Откройте папку с проектом, нажмите <kbd className="bg-gray-200 px-2 py-1 rounded text-xs">Shift</kbd> + 
+                    <kbd className="bg-gray-200 px-2 py-1 rounded text-xs">правая кнопка мыши</kbd> в пустом месте папки 
+                    и выберите <strong>"Открыть окно PowerShell"</strong> или <strong>"Открыть в терминале"</strong>.
+                  </p>
+                  <p className="text-xs text-gray-600">
+                    Альтернатива: в адресной строке проводника наберите <code className="bg-gray-100 px-2 py-1 rounded">cmd</code> и нажмите Enter.
+                  </p>
+                </div>
+
+                <div className="border-l-4 border-green-500 pl-4">
+                  <h3 className="font-bold text-gray-800 mb-2">Шаг 4. Установите зависимости</h3>
+                  <p className="mb-2">В командной строке введите команду и нажмите Enter:</p>
+                  <div className="bg-gray-900 text-green-400 p-3 rounded-lg font-mono text-sm">
+                    npm install
+                  </div>
+                  <p className="mt-2 text-xs text-gray-600">
+                    Подождите 1-2 минуты, пока установятся все компоненты.
+                  </p>
+                </div>
+
+                <div className="border-l-4 border-green-500 pl-4">
+                  <h3 className="font-bold text-gray-800 mb-2">Шаг 5. Соберите программу</h3>
+                  <p className="mb-2">В той же командной строке введите:</p>
+                  <div className="bg-gray-900 text-green-400 p-3 rounded-lg font-mono text-sm">
+                    npm run build
+                  </div>
+                  <p className="mt-2 text-xs text-gray-600">
+                    Сборка займёт несколько секунд. После завершения появится папка <code className="bg-gray-100 px-2 py-1 rounded">dist</code>.
+                  </p>
+                </div>
+
+                <div className="border-l-4 border-green-500 pl-4">
+                  <h3 className="font-bold text-gray-800 mb-2">Шаг 6. Готово!</h3>
+                  <p className="mb-2">
+                    В папке <code className="bg-gray-100 px-2 py-1 rounded">dist</code> будет файл 
+                    <strong className="text-green-700"> index.html</strong> — это и есть ваша программа!
+                  </p>
+                  <ul className="list-disc list-inside space-y-1 text-gray-600">
+                    <li>Переименуйте его в <code className="bg-gray-100 px-2 py-1 rounded">Планирование_РЗА.html</code></li>
+                    <li>Можете перенести в любое место на компьютере</li>
+                    <li>Открывайте двойным кликом — работает без интернета!</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mt-4">
+                <p className="font-semibold text-yellow-800 mb-2">⚠️ Важно:</p>
+                <ul className="list-disc list-inside space-y-1 text-yellow-700 text-xs">
+                  <li>Шаги 1-5 нужно выполнить только один раз</li>
+                  <li>После сборки файл <code className="bg-yellow-100 px-1 rounded">index.html</code> полностью автономен</li>
+                  <li>Папки <code className="bg-yellow-100 px-1 rounded">node_modules</code> и <code className="bg-yellow-100 px-1 rounded">src</code> больше не нужны — их можно удалить</li>
+                  <li>Данные сохраняются в браузере, делайте резервные копии через экспорт в Excel</li>
+                </ul>
+              </div>
+
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4 mt-4">
+                <p className="font-semibold text-green-800 mb-2">🆘 Нужна помощь?</p>
+                <p className="text-green-700 text-xs">
+                  Если что-то не получается, обратитесь к любому знакомому IT-специалисту 
+                  с этой инструкцией — он поможет выполнить шаги 1-5 за 5 минут.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-5 border-t flex justify-end">
+              <button
+                onClick={() => setShowInstructions(false)}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                Понятно, закрыть
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
