@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { MaintenanceRecord, MarkerType } from './types';
+import { MaintenanceRecord, MarkerType, MAINTENANCE_TYPES } from './types';
 import { exportToExcel, importFromExcel } from './excelUtils';
 import { getMarkerType, getMarkerColor, getMarkerLabel, getMarkerDotColor } from './markerUtils';
 import { sampleData } from './sampleData';
@@ -13,9 +13,9 @@ import {
   Filter,
   X,
   Check,
-  AlertTriangle,
   Calendar,
   ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 function App() {
@@ -33,9 +33,10 @@ function App() {
 
   const [showForm, setShowForm] = useState(false);
   const [editingRecord, setEditingRecord] = useState<MaintenanceRecord | null>(null);
-  const [filterMarker, setFilterMarker] = useState<MarkerType | 'all'>('all');
+  const [activeMarkers, setActiveMarkers] = useState<MarkerType[]>([]);
   const [searchText, setSearchText] = useState('');
   const [showLegend, setShowLegend] = useState(true);
+  const [showFilters, setShowFilters] = useState(true);
   const [importStatus, setImportStatus] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -51,6 +52,17 @@ function App() {
     localStorage.setItem('rza_records', JSON.stringify(newRecords));
   }, []);
 
+  const toggleMarker = (marker: MarkerType) => {
+    setActiveMarkers(prev =>
+      prev.includes(marker) ? prev.filter(m => m !== marker) : [...prev, marker]
+    );
+  };
+
+  const clearFilters = () => {
+    setActiveMarkers([]);
+    setSearchText('');
+  };
+
   const handleExport = () => {
     exportToExcel(records, `РЗА_план_${currentYear}.xlsx`);
   };
@@ -63,7 +75,7 @@ function App() {
       saveRecords([...records, ...imported]);
       setImportStatus(`Успешно импортировано ${imported.length} записей`);
       setTimeout(() => setImportStatus(''), 3000);
-    } catch (err) {
+    } catch {
       setImportStatus('Ошибка при импорте файла');
       setTimeout(() => setImportStatus(''), 3000);
     }
@@ -87,13 +99,17 @@ function App() {
   };
 
   const filteredRecords = records.filter(r => {
-    if (filterMarker !== 'all' && getMarkerType(r) !== filterMarker) return false;
+    const marker = getMarkerType(r);
+    // Если выбраны фильтры по маркерам - показывать только совпадающие
+    if (activeMarkers.length > 0 && !activeMarkers.includes(marker)) return false;
+    // Поиск по тексту
     if (searchText) {
       const search = searchText.toLowerCase();
       return (
         r.connection.toLowerCase().includes(search) ||
         r.deviceName.toLowerCase().includes(search) ||
-        r.lastMaintenanceType.toLowerCase().includes(search)
+        r.lastMaintenanceType.toLowerCase().includes(search) ||
+        r.actualMaintenanceType.toLowerCase().includes(search)
       );
     }
     return true;
@@ -106,6 +122,13 @@ function App() {
     plannedCurrent: records.filter(r => getMarkerType(r) === 'plannedCurrentMonth').length,
     plannedNext: records.filter(r => getMarkerType(r) === 'plannedNextMonth').length,
   };
+
+  const markerOptions: { type: MarkerType; label: string; color: string }[] = [
+    { type: 'completed', label: 'Выполнено в текущем году', color: 'bg-green-500' },
+    { type: 'overdue', label: 'Невыполнено в срок', color: 'bg-red-500' },
+    { type: 'plannedCurrentMonth', label: 'План на текущий месяц', color: 'bg-yellow-500' },
+    { type: 'plannedNextMonth', label: 'План на следующий месяц', color: 'bg-blue-500' },
+  ];
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -185,21 +208,6 @@ function App() {
 
             <div className="flex-1" />
 
-            <div className="relative">
-              <Filter size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <select
-                value={filterMarker}
-                onChange={(e) => setFilterMarker(e.target.value as MarkerType | 'all')}
-                className="pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="all">Все записи</option>
-                <option value="completed">✅ Выполнено в текущем году</option>
-                <option value="overdue">❌ Невыполнено в срок</option>
-                <option value="plannedCurrentMonth">📅 План на текущий месяц</option>
-                <option value="plannedNextMonth">📆 План на следующий месяц</option>
-              </select>
-            </div>
-
             <input
               type="text"
               placeholder="Поиск..."
@@ -207,11 +215,74 @@ function App() {
               onChange={(e) => setSearchText(e.target.value)}
               className="border border-gray-300 rounded-lg px-4 py-2 text-sm w-48 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
+
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center gap-2 border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <Filter size={16} />
+              Фильтры
+              {activeMarkers.length > 0 && (
+                <span className="bg-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                  {activeMarkers.length}
+                </span>
+              )}
+              {showFilters ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
           </div>
 
           {importStatus && (
             <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
               {importStatus}
+            </div>
+          )}
+
+          {/* Multiple Filter Panel */}
+          {showFilters && (
+            <div className="mt-4 pt-4 border-t border-gray-200">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-gray-700">Фильтр по статусу (можно выбрать несколько):</h3>
+                {activeMarkers.length > 0 && (
+                  <button
+                    onClick={clearFilters}
+                    className="text-xs text-red-600 hover:text-red-800 flex items-center gap-1"
+                  >
+                    <X size={12} /> Сбросить все
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {markerOptions.map(option => (
+                  <button
+                    key={option.type}
+                    onClick={() => toggleMarker(option.type)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                      activeMarkers.includes(option.type)
+                        ? 'border-current bg-opacity-10 shadow-sm'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
+                    } ${
+                      activeMarkers.includes(option.type) && option.type === 'completed' ? 'border-green-500 bg-green-50 text-green-700' : ''
+                    } ${
+                      activeMarkers.includes(option.type) && option.type === 'overdue' ? 'border-red-500 bg-red-50 text-red-700' : ''
+                    } ${
+                      activeMarkers.includes(option.type) && option.type === 'plannedCurrentMonth' ? 'border-yellow-500 bg-yellow-50 text-yellow-700' : ''
+                    } ${
+                      activeMarkers.includes(option.type) && option.type === 'plannedNextMonth' ? 'border-blue-500 bg-blue-50 text-blue-700' : ''
+                    }`}
+                  >
+                    <span className={`w-3 h-3 rounded-full ${option.color} ${activeMarkers.includes(option.type) ? 'ring-2 ring-offset-1 ring-current' : ''}`}></span>
+                    {option.label}
+                    {activeMarkers.includes(option.type) && (
+                      <Check size={14} className="ml-1" />
+                    )}
+                  </button>
+                ))}
+              </div>
+              {activeMarkers.length > 0 && (
+                <p className="text-xs text-gray-500 mt-2">
+                  Выбрано фильтров: {activeMarkers.length} | Показано записей: {filteredRecords.length} из {records.length}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -225,7 +296,7 @@ function App() {
                 <X size={16} />
               </button>
             </div>
-            <div className="flex flex-wrap gap-4">
+            <div className="flex flex-wrap gap-4 mb-3">
               <div className="flex items-center gap-2">
                 <span className="w-4 h-4 rounded-full bg-green-500"></span>
                 <span className="text-sm text-gray-600">Выполнено в текущем году</span>
@@ -241,6 +312,16 @@ function App() {
               <div className="flex items-center gap-2">
                 <span className="w-4 h-4 rounded-full bg-blue-500"></span>
                 <span className="text-sm text-gray-600">Запланировано на следующий месяц</span>
+              </div>
+            </div>
+            <div className="border-t pt-2 mt-2">
+              <h4 className="text-xs font-semibold text-gray-500 mb-1">Виды обслуживания:</h4>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {MAINTENANCE_TYPES.map(t => (
+                  <span key={t.code} className="text-xs text-gray-600">
+                    <strong>{t.code}</strong> — {t.name}
+                  </span>
+                ))}
               </div>
             </div>
           </div>
@@ -264,10 +345,10 @@ function App() {
                   <th className="px-3 py-3 text-left font-medium w-8">№</th>
                   <th className="px-3 py-3 text-left font-medium min-w-[180px]">Присоединение</th>
                   <th className="px-3 py-3 text-left font-medium min-w-[200px]">Наименование устройства</th>
-                  <th className="px-3 py-3 text-left font-medium">Вид последнего ТО</th>
+                  <th className="px-3 py-3 text-left font-medium">Вид посл. ТО</th>
                   <th className="px-3 py-3 text-left font-medium">Дата посл. ТО</th>
                   <th className="px-3 py-3 text-center font-medium">В плане</th>
-                  <th className="px-3 py-3 text-left font-medium">Факт. вид обслуж.</th>
+                  <th className="px-3 py-3 text-left font-medium">Факт. вид</th>
                   <th className="px-3 py-3 text-left font-medium">Факт. дата</th>
                   <th className="px-3 py-3 text-center font-medium">Статус</th>
                   <th className="px-3 py-3 text-center font-medium w-24">Действия</th>
@@ -294,7 +375,13 @@ function App() {
                         <td className="px-3 py-2 text-gray-500">{idx + 1}</td>
                         <td className="px-3 py-2 font-medium text-gray-800">{record.connection}</td>
                         <td className="px-3 py-2 text-gray-700">{record.deviceName}</td>
-                        <td className="px-3 py-2 text-gray-600">{record.lastMaintenanceType || '—'}</td>
+                        <td className="px-3 py-2">
+                          <span className="inline-flex items-center gap-1">
+                            <span className="font-mono font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded text-xs">
+                              {record.lastMaintenanceType || '—'}
+                            </span>
+                          </span>
+                        </td>
                         <td className="px-3 py-2 text-gray-600">{record.lastMaintenanceDate || '—'}</td>
                         <td className="px-3 py-2 text-center">
                           {record.includedInPlan ? (
@@ -303,7 +390,15 @@ function App() {
                             <X size={16} className="mx-auto text-gray-400" />
                           )}
                         </td>
-                        <td className="px-3 py-2 text-gray-600">{record.actualMaintenanceType || '—'}</td>
+                        <td className="px-3 py-2">
+                          {record.actualMaintenanceType ? (
+                            <span className="font-mono font-bold text-green-700 bg-green-50 px-1.5 py-0.5 rounded text-xs">
+                              {record.actualMaintenanceType}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </td>
                         <td className="px-3 py-2 text-gray-600">{record.actualMaintenanceDate || '—'}</td>
                         <td className="px-3 py-2 text-center">
                           {marker !== 'none' && (
@@ -385,16 +480,6 @@ function RecordForm({ record, onSave, onCancel, currentYear, monthNames }: Recor
     }
   );
 
-  const maintenanceTypes = [
-    'Текущий осмотр',
-    'Полная проверка',
-    'Частичная проверка',
-    'Техническое обслуживание',
-    'Ремонт',
-    'Испытание',
-    'Наладка',
-  ];
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSave(form);
@@ -446,8 +531,8 @@ function RecordForm({ record, onSave, onCancel, currentYear, monthNames }: Recor
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="">Выберите вид...</option>
-                {maintenanceTypes.map(t => (
-                  <option key={t} value={t}>{t}</option>
+                {MAINTENANCE_TYPES.map(t => (
+                  <option key={t.code} value={t.code}>{t.code} — {t.name}</option>
                 ))}
               </select>
             </div>
@@ -519,8 +604,8 @@ function RecordForm({ record, onSave, onCancel, currentYear, monthNames }: Recor
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="">Не выполнено</option>
-                {maintenanceTypes.map(t => (
-                  <option key={t} value={t}>{t}</option>
+                {MAINTENANCE_TYPES.map(t => (
+                  <option key={t.code} value={t.code}>{t.code} — {t.name}</option>
                 ))}
               </select>
             </div>
@@ -534,6 +619,23 @@ function RecordForm({ record, onSave, onCancel, currentYear, monthNames }: Recor
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
+          </div>
+
+          {/* Reference table for maintenance types */}
+          <div className="border-t pt-4">
+            <details className="text-sm">
+              <summary className="cursor-pointer text-gray-600 font-medium hover:text-gray-800">
+                Справка по видам обслуживания
+              </summary>
+              <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1 bg-gray-50 rounded-lg p-3">
+                {MAINTENANCE_TYPES.map(t => (
+                  <div key={t.code} className="flex gap-2 text-xs">
+                    <span className="font-mono font-bold text-blue-700 min-w-[30px]">{t.code}</span>
+                    <span className="text-gray-600">{t.name}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t">
