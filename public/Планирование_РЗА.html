@@ -113,6 +113,7 @@ tbody tr:hover{background:#f9fafb}
 <button class="btn btn-green" onclick="exportExcel()">📥 Экспорт в Excel</button>
 <label class="btn btn-purple" style="cursor:pointer">📤 Импорт из Excel<input type="file" accept=".xlsx,.xls,.csv" onchange="importExcel(event)" style="display:none"></label>
 <button class="btn btn-orange" onclick="saveToFile()" id="saveBtn" title="Сохранить данные прямо в этот файл">💾 Сохранить</button>
+<button class="btn btn-gray btn-sm" onclick="showCloseDialog()" title="Закрыть программу">✕ Закрыть</button>
 <span id="saveStatus" style="font-size:11px;color:#6b7280;"></span>
 <div style="flex:1"></div>
 <input type="text" class="search-input" placeholder="Поиск..." oninput="searchText=this.value;render()">
@@ -178,6 +179,21 @@ tbody tr:hover{background:#f9fafb}
 </div>
 <p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:16px">Данные сохраняются в браузере. Используйте экспорт/импорт для резервного копирования.</p>
 </main>
+<div id="closeDialog" class="modal-overlay" style="display:none;z-index:200">
+<div class="modal" style="max-width:480px">
+<div class="modal-header">
+<h2>⚠️ Данные не сохранены</h2>
+</div>
+<div class="modal-body">
+<p style="margin-bottom:20px;color:#4b5563">У вас есть несохранённые изменения. Что вы хотите сделать?</p>
+<div style="display:flex;gap:12px;justify-content:flex-end">
+<button class="btn btn-gray" onclick="cancelClose()">Отмена</button>
+<button class="btn btn-gray" onclick="closeWithoutSaving()" style="color:#dc2626;border-color:#dc2626">Выйти без сохранения</button>
+<button class="btn btn-blue" onclick="saveAndClose()">💾 Сохранить и выйти</button>
+</div>
+</div>
+</div>
+</div>
 <div id="modal" class="modal-overlay" style="display:none">
 <div class="modal">
 <div class="modal-header">
@@ -386,6 +402,75 @@ document.getElementById('saveStatus').textContent='🔗 Файл подключ�
 setTimeout(()=>{document.getElementById('saveStatus').textContent=''},3000)
 }}catch(e){}}}
 )();
+
+// === ОТСЛЕЖИВАНИЕ НЕСОХРАНЁННЫХ ИЗМЕНЕНИЙ ===
+let isDirty=false;
+
+// Переопределяем saveData чтобы отмечать изменения
+const _origSaveData2=saveData;
+saveData=function(){
+_origSaveData2();
+isDirty=true;
+};
+
+// При успешном сохранении в файл — сбрасываем флаг
+const _origSaveToFile=saveToFile;
+saveToFile=async function(){
+const result=await _origSaveToFile.apply(this,arguments);
+if(fileHandle){
+isDirty=false;
+}
+return result;
+};
+
+// Обработчик попытки закрытия страницы
+window.addEventListener('beforeunload',function(e){
+if(isDirty){
+e.preventDefault();
+e.returnValue='';
+// Браузер покажет стандартное предупреждение
+// Если пользователь остаётся — автосохранение сработает
+}
+});
+
+// Функции для диалога закрытия
+function showCloseDialog(){
+if(isDirty){
+document.getElementById('closeDialog').style.display='flex';
+}else{
+window.close();
+// Если window.close() не сработал (не из popup) — закрываем вкладку
+setTimeout(()=>{
+window.location.href='about:blank';
+},100);
+}
+}
+
+function cancelClose(){
+document.getElementById('closeDialog').style.display='none';
+}
+
+async function saveAndClose(){
+document.getElementById('closeDialog').style.display='none';
+await saveToFile();
+isDirty=false;
+// Закрываем после сохранения
+setTimeout(()=>{
+window.close();
+setTimeout(()=>{
+window.location.href='about:blank';
+},100);
+},500);
+}
+
+function closeWithoutSaving(){
+document.getElementById('closeDialog').style.display='none';
+isDirty=false;
+window.close();
+setTimeout(()=>{
+window.location.href='about:blank';
+},100);
+}
 
 loadData();
 </script>
