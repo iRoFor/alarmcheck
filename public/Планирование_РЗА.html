@@ -307,9 +307,42 @@ function togglePlanFields(){document.getElementById('planFields').style.display=
 function saveRecord(e){e.preventDefault();const d={id:editingId||'rec-'+Date.now(),connection:document.getElementById('f_connection').value,deviceName:document.getElementById('f_deviceName').value,lastMaintenanceType:document.getElementById('f_lastMaintenanceType').value,lastMaintenanceDate:document.getElementById('f_lastMaintenanceDate').value,includedInPlan:document.getElementById('f_includedInPlan').checked,plannedMonth:parseInt(document.getElementById('f_plannedMonth').value)||0,plannedYear:parseInt(document.getElementById('f_plannedYear').value)||currentYear,actualMaintenanceType:document.getElementById('f_actualMaintenanceType').value,actualMaintenanceDate:document.getElementById('f_actualMaintenanceDate').value};if(editingId)records=records.map(r=>r.id===editingId?d:r);else records.push(d);saveData();render();closeForm()}
 function deleteRecord(id){if(confirm('Удалить запись?')){records=records.filter(r=>r.id!==id);saveData();render()}}
 
-function exportExcel(){const data=records.map((r,i)=>({'№':i+1,'Присоединение':r.connection,'Наименование устройства':r.deviceName,'Вид последнего ТО':r.lastMaintenanceType,'Дата последнего обслуживания':r.lastMaintenanceDate,'Включен в план на текущий год':r.includedInPlan?'Да':'Нет','Фактический вид обслуживания':r.actualMaintenanceType,'Фактическая дата выполнения':r.actualMaintenanceDate,'Запланированный месяц':r.plannedMonth,'Запланированный год':r.plannedYear}));const ws=XLSX.utils.json_to_sheet(data);ws['!cols']=[{wch:5},{wch:25},{wch:30},{wch:20},{wch:20},{wch:15},{wch:25},{wch:20},{wch:15},{wch:15}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'План РЗА');XLSX.writeFile(wb,'РЗА_план_'+currentYear+'.xlsx')}
+function exportExcel(){
+// Создаем массив данных
+const aoa=[['№','Присоединение','Наименование устройства','Вид последнего ТО','Дата последнего обслуживания','Включен в план на текущий год','Фактический вид обслуживания','Фактическая дата выполнения','Запланированный месяц','Запланированный год']];
+records.forEach((r,i)=>{
+aoa.push([i+1,r.connection,r.deviceName,r.lastMaintenanceType,r.lastMaintenanceDate,r.includedInPlan?'Да':'Нет',r.actualMaintenanceType,r.actualMaintenanceDate,r.plannedMonth,r.plannedYear]);
+});
+const ws=XLSX.utils.aoa_to_sheet(aoa);
+// Находим группы последовательных строк с одинаковым "Присоединение" для объединения
+const merges=[];
+let startRow=1; // начинаем со строки 1 (после заголовка)
+for(let i=2;i<=aoa.length;i++){
+// Проверяем, закончилась ли группа одинаковых значений
+if(i===aoa.length||aoa[i][1]!==aoa[startRow][1]){
+// Если группа больше 1 строки - добавляем merge
+if(i-startRow>1){
+merges.push({s:{r:startRow,c:1},e:{r:i-1,c:1}});
+}
+startRow=i;
+}
+}
+if(merges.length>0)ws['!merges']=merges;
+ws['!cols']=[{wch:5},{wch:25},{wch:30},{wch:20},{wch:20},{wch:15},{wch:25},{wch:20},{wch:15},{wch:15}];
+const wb=XLSX.utils.book_new();
+XLSX.utils.book_append_sheet(wb,ws,'План РЗА');
+XLSX.writeFile(wb,'РЗА_план_'+currentYear+'.xlsx');
+}
 
-function importExcel(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=function(ev){try{const d=new Uint8Array(ev.target.result),wb=XLSX.read(d,{type:'array'}),ws=wb.Sheets[wb.SheetNames[0]],j=XLSX.utils.sheet_to_json(ws);const imp=j.map((row,i)=>({id:'imp-'+Date.now()+'-'+i,connection:String(row['Присоединение']||''),deviceName:String(row['Наименование устройства']||''),lastMaintenanceType:String(row['Вид последнего ТО']||''),lastMaintenanceDate:String(row['Дата последнего обслуживания']||''),includedInPlan:String(row['Включен в план на текущий год']||'').toLowerCase()==='да'||row['Включен в план на текущий год']===true,actualMaintenanceType:String(row['Фактический вид обслуживания']||''),actualMaintenanceDate:String(row['Фактическая дата выполнения']||''),plannedMonth:Number(row['Запланированный месяц']||0),plannedYear:Number(row['Запланированный год']||currentYear)}));records=[...records,...imp];saveData();render();alert('Импортировано: '+imp.length)}catch(err){alert('Ошибка: '+err.message)}e.target.value=''};r.readAsArrayBuffer(f)}
+function importExcel(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=function(ev){try{const d=new Uint8Array(ev.target.result),wb=XLSX.read(d,{type:'array'}),ws=wb.Sheets[wb.SheetNames[0]],j=XLSX.utils.sheet_to_json(ws,{defval:''});
+// Заполняем пустые "Присоединение" значением из предыдущей строки
+let lastConnection='';
+j.forEach(row=>{
+const conn=String(row['Присоединение']||'').trim();
+if(conn){lastConnection=conn}
+else{row['Присоединение']=lastConnection}
+});
+const imp=j.map((row,i)=>({id:'imp-'+Date.now()+'-'+i,connection:String(row['Присоединение']||''),deviceName:String(row['Наименование устройства']||''),lastMaintenanceType:String(row['Вид последнего ТО']||''),lastMaintenanceDate:String(row['Дата последнего обслуживания']||''),includedInPlan:String(row['Включен в план на текущий год']||'').toLowerCase()==='да'||row['Включен в план на текущий год']===true,actualMaintenanceType:String(row['Фактический вид обслуживания']||''),actualMaintenanceDate:String(row['Фактическая дата выполнения']||''),plannedMonth:Number(row['Запланированный месяц']||0),plannedYear:Number(row['Запланированный год']||currentYear)}));records=[...records,...imp];saveData();render();alert('Импортировано: '+imp.length)}catch(err){alert('Ошибка: '+err.message)}e.target.value=''};r.readAsArrayBuffer(f)}
 
 // === СОХРАНЕНИЕ В ФАЙЛ ===
 let fileHandle=null;
