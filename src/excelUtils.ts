@@ -4,6 +4,10 @@ import { OutageEvent, EMPTY_EVENT, formatDateStr, parseDateStr } from './types';
 // Маппинг заголовков столбцов Excel -> ключи события.
 // Поддерживаются и старые столбцы "Аварийные параметры..." (игнорируются при импорте с 2020 г.)
 const HEADER_MAP: Record<string, keyof OutageEvent> = {
+  'номер': 'num',
+  '№': 'num',
+  '№ п.ч': 'num',
+  'нумерация': 'num',
   'дата отключения': 'date',
   'дата': 'date',
   'время': 'date',
@@ -124,6 +128,9 @@ export function parseWorkbook(data: ArrayBuffer): ParsedSheet[] {
         } else if (col.targetKey === 'voltage') {
           const num = s.replace(/[^0-9]/g, '');
           ev.voltage = num || s;
+        } else if (col.targetKey === 'num') {
+          const n = parseInt(s.replace(/[^0-9]/g, ''), 10);
+          if (!isNaN(n)) ev.num = n;
         } else {
           (ev as any)[col.targetKey] = s;
         }
@@ -151,7 +158,7 @@ export function parseWorkbook(data: ArrayBuffer): ParsedSheet[] {
 
 // ---- Экспорт ----
 const EXPORT_HEADERS = [
-  'Дата отключения', 'Линия', 'Класс напряжения, кВ',
+  '№', 'Дата отключения', 'Линия', 'Класс напряжения, кВ',
   'Работа РЗА на ПС №1', 'Работа РЗА на ПС №2', 'Причина повреждения',
   'ОМП расчетное', 'ОМП реальное', 'Анализ работы',
   'Работа РЗА на смежных ПС', 'Примечания', 'Отказ', 'Осциллограммы',
@@ -171,7 +178,8 @@ export function exportToExcel(events: OutageEvent[]) {
   for (const y of years) {
     const rows = byYear.get(y)!
       .sort((a, b) => (parseDateStr(a.date)?.getTime() ?? 0) - (parseDateStr(b.date)?.getTime() ?? 0))
-      .map((e) => [
+      .map((e, i) => [
+        e.num ?? i + 1,
         e.date, e.line, e.voltage ? `${e.voltage}` : '', e.rzaPs1, e.rzaPs2, e.cause,
         e.ompCalc, e.ompReal, e.analysis, e.rzaAdjacent, e.notes,
         e.refusal ? 'Отказ' : '',

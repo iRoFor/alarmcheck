@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   OutageEvent, Oscillogram, EMPTY_EVENT, COLUMNS, VOLTAGE_OPTIONS,
-  isIncomplete, parseDateStr, nowDateStr,
+  isIncomplete, parseDateStr, nowDateStr, getYear,
 } from './types';
 import { parseWorkbook, exportToExcel, ImportColumn, ParsedSheet } from './excelUtils';
 import {
@@ -59,6 +60,9 @@ function EventForm({
 
   const set = (k: keyof OutageEvent, v: any) => setEv((p) => ({ ...p, [k]: v }));
 
+  // нормализация номера при вводе (только цифры)
+  const numStr = ev.num == null ? '' : String(ev.num);
+
   const addOscFiles = (files: FileList | null) => {
     if (!files) return;
     Array.from(files).forEach((f) => {
@@ -94,6 +98,18 @@ function EventForm({
         </div>
         <p className="text-xs text-slate-500 mb-4">Все поля необязательны — информацию можно дополнить позже.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-xs font-semibold text-slate-600">Номер события</span>
+            <input
+              className="mt-1 w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={numStr}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/[^0-9]/g, '');
+                set('num', digits === '' ? undefined : parseInt(digits, 10));
+              }}
+              placeholder="авто"
+            />
+          </label>
           {field('Дата отключения (дд.мм.гггг чч:мм)', 'date', nowDateStr())}
           {field('Линия ("ПС №1" - "ПС №2")', 'line', 'ПС 110 кВ "Заря" - ПС 110 кВ "Искра"')}
           <label className="block">
@@ -284,17 +300,22 @@ function ImportModal({
 
 // ---------- Фильтр по значению столбца ----------
 function ColumnFilterPopover({
-  colKey, title, events, selected, onApply, onClose,
+  colKey, title, events, selected, onApply, onClose, anchorRect,
 }: {
   colKey: keyof OutageEvent; title: string; events: OutageEvent[];
   selected: Set<string>; onApply: (vals: Set<string>) => void; onClose: () => void;
+  anchorRect: DOMRect | null;
 }) {
   const values = useMemo(() => {
     const set = new Set<string>();
     events.forEach((e) => {
+      if (colKey === 'num') { set.add(String(e.num ?? '')); return; }
       const v = String((e as any)[colKey] ?? '').trim();
       if (v) set.add(v);
     });
+    if (colKey === 'num') {
+      return [...set].filter(Boolean).sort((a, b) => +a - +b);
+    }
     return [...set].sort((a, b) => a.localeCompare(b, 'ru'));
   }, [events, colKey]);
   const [checked, setChecked] = useState<Set<string>>(new Set(selected));
@@ -302,14 +323,18 @@ function ColumnFilterPopover({
 
   const shown = values.filter((v) => v.toLowerCase().includes(search.toLowerCase()));
 
-  return (
+  const left = anchorRect ? Math.max(8, Math.min(anchorRect.left, window.innerWidth - 280)) : 8;
+  const top = anchorRect ? anchorRect.bottom + 6 : 8;
+
+  return createPortal(
     <>
-      <div className="fixed inset-0 z-40" onClick={onClose} />
-      <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-slate-300 rounded-md shadow-lg w-64 p-2">
+      <div className="fixed inset-0 z-[70]" onClick={onClose} />
+      <div className="fixed z-[80] bg-white text-slate-800 border border-slate-300 rounded-md shadow-xl w-64 p-2"
+        style={{ left, top, maxHeight: '60vh', display: 'flex', flexDirection: 'column' }}>
         <div className="text-xs font-semibold text-slate-600 mb-1">{title}</div>
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск…"
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск значения…" autoFocus
           className="w-full text-sm border border-slate-300 rounded px-2 py-1 mb-1" />
-        <div className="max-h-48 overflow-y-auto">
+        <div className="overflow-y-auto" style={{ maxHeight: '35vh' }}>
           {shown.length === 0 && <div className="text-xs text-slate-400 px-1 py-2">Нет значений</div>}
           {shown.map((v) => (
             <label key={v} className="flex items-start gap-2 text-sm px-1 py-0.5 cursor-pointer hover:bg-slate-50">
@@ -327,7 +352,8 @@ function ColumnFilterPopover({
             onClick={() => onApply(checked)}>OK</button>
         </div>
       </div>
-    </>
+    </>,
+    document.body
   );
 }
 
@@ -339,11 +365,14 @@ export default function App() {
   const [showForm, setShowForm] = useState(false);
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('none');
   const [colFilters, setColFilters] = useState<Map<keyof OutageEvent, Set<string>>>(new Map());
-  const [openFilterCol, setOpenFilterCol] = useState<keyof OutageEvent | null>(null);
+  const [openFilterCol, setOpenFilterCol] = useState<{ key: keyof OutageEvent; rect: DOMRect } | null>(null);
+  const [searchText, setSearchText] = useState('');
+  const [activeYear, setActiveYear] = useState<number | 'all' | 'nodate'>('all');
   const [confirmClear, setConfirmClear] = useState(false);
   const [confirmExit, setConfirmExit] = useState(false);
   const [importSheets, setImportSheets] = useState<ParsedSheet[] | null>(null);
   const [hoveredOsc, setHoveredOsc] = useState<{ evId: string; x: number; y: number } | null>(null);
+  const oscHideTimer = useRef<number | null>(null);
   const [lightbox, setLightbox] = useState<Oscillogram | null>(null);
   const [toast, setToast] = useState<string>('');
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -375,8 +404,38 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', handler);
   }, [dirty]);
 
+  // годы для вкладок (по умолчанию открывается самый последний год)
+  const years = useMemo(() => {
+    const set = new Set<number>();
+    let hasNoDate = false;
+    events.forEach((e) => {
+      const y = getYear(e.date);
+      if (y) set.add(y); else hasNoDate = true;
+    });
+    return { list: [...set].sort((a, b) => b - a), hasNoDate };
+  }, [events]);
+
+  const initialYearRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (initialYearRef.current == null && years.list.length > 0) {
+      initialYearRef.current = years.list[0];
+      setActiveYear(years.list[0]);
+    }
+  }, [years]);
+
+  useEffect(() => {
+    // если активная вкладка года исчезла — вернуться на последнюю вкладку
+    if (typeof activeYear === 'number' && !years.list.includes(activeYear)) {
+      setActiveYear(years.list[0] ?? 'all');
+    }
+  }, [years, activeYear]);
+
   const filtered = useMemo(() => {
     let list = events;
+    // вкладка по году
+    if (activeYear === 'nodate') list = list.filter((e) => !getYear(e.date));
+    else if (typeof activeYear === 'number') list = list.filter((e) => getYear(e.date) === activeYear);
+
     if (quickFilter === 'refusal') list = list.filter((e) => e.refusal);
     else if (quickFilter === 'v330') list = list.filter((e) => e.voltage === '330');
     else if (quickFilter === 'v110') list = list.filter((e) => e.voltage === '110');
@@ -385,18 +444,38 @@ export default function App() {
     for (const [key, vals] of colFilters) {
       if (vals.size === 0) continue;
       list = list.filter((e) => {
-        const v = String((e as any)[key] ?? '').trim();
+        const v = key === 'num' ? String(e.num ?? '') : String((e as any)[key] ?? '').trim();
         return vals.has(v);
       });
     }
-    return [...list].sort((a, b) => (parseDateStr(a.date)?.getTime() ?? 0) - (parseDateStr(b.date)?.getTime() ?? 0));
-  }, [events, quickFilter, colFilters]);
+
+    // полнотекстовый поиск по всем столбцам
+    const q = searchText.trim().toLowerCase();
+    if (q) {
+      list = list.filter((e) => {
+        const parts: string[] = [];
+        COLUMNS.forEach((c) => {
+          if (c.key === 'oscillograms') {
+            e.oscillograms.forEach((o) => parts.push(o.name));
+          } else {
+            parts.push(String((e as any)[c.key] ?? ''));
+          }
+        });
+        parts.push(e.refusal ? 'отказ отказ' : '');
+        return parts.join('\n').toLowerCase().includes(q);
+      });
+    }
+
+    // сортировка: новые события сверху (по убыванию даты)
+    return [...list].sort((a, b) => (parseDateStr(b.date)?.getTime() ?? 0) - (parseDateStr(a.date)?.getTime() ?? 0));
+  }, [events, quickFilter, colFilters, searchText, activeYear]);
 
   const handleSaveEvent = (ev: OutageEvent) => {
     setEvents((prev) => {
       const idx = prev.findIndex((e) => e.id === ev.id);
       if (idx >= 0) { const n = [...prev]; n[idx] = ev; return n; }
-      return [...prev, ev];
+      const maxNum = prev.reduce((m, e) => Math.max(m, e.num ?? 0), 0);
+      return [...prev, { ...ev, num: ev.num ?? maxNum + 1 }];
     });
     setShowForm(false);
     setEditing(null);
@@ -419,9 +498,25 @@ export default function App() {
 
   const confirmImport = (bySheet: Map<string, OutageEvent[]>) => {
     const incoming: OutageEvent[] = [];
-    bySheet.forEach((list) => incoming.push(...list));
-    setEvents((prev) => [...prev, ...incoming]);
+    // сортировка листов по году при импорте
+    const ordered = [...bySheet.entries()].sort((a, b) => {
+      const ya = getYear(a[1][0]?.date ?? '') ?? a[0].match(/(19|20)\d{2}/)?.[0] as any;
+      const yb = getYear(b[1][0]?.date ?? '') ?? b[0].match(/(19|20)\d{2}/)?.[0] as any;
+      return Number(ya ?? 0) - Number(yb ?? 0);
+    });
+    ordered.forEach(([, list]) => incoming.push(...list));
+    setEvents((prev) => {
+      const maxNum = prev.reduce((m, e) => Math.max(m, e.num ?? 0), 0);
+      let n = maxNum;
+      const stamped = incoming.map((e) => ({ ...e, num: e.num ?? ++n }));
+      return [...prev, ...stamped];
+    });
     setImportSheets(null);
+    if (incoming.length) {
+      // открыть вкладку последнего импортированного года
+      const lastYear = [...incoming].reverse().map((e) => getYear(e.date)).find((y) => y != null);
+      if (lastYear) setActiveYear(lastYear);
+    }
     showToast(`Импортировано событий: ${incoming.length}`);
   };
 
@@ -469,7 +564,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Быстрые фильтры */}
+      {/* Быстрые фильтры + поиск */}
       <div className="max-w-[1800px] mx-auto px-4 pt-3 flex flex-wrap items-center gap-2">
         <Filter size={16} className="text-slate-500" />
         <span className="text-sm text-slate-600 font-medium">Быстрые фильтры:</span>
@@ -501,15 +596,83 @@ export default function App() {
             Сбросить фильтры столбцов
           </button>
         )}
+        <div className="relative ml-auto">
+          <input
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            placeholder="Поиск по тексту (дата, линия, причина, примечания и т.д.)…"
+            className="w-[340px] max-w-full text-sm border border-slate-300 rounded-md px-3 py-1.5 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          {searchText && (
+            <button className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+              onClick={() => setSearchText('')} title="Очистить поиск">
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Вкладки по годам */}
+      <div className="max-w-[1800px] mx-auto px-4 pt-3 flex flex-wrap items-center gap-1 border-b border-slate-200 pb-0">
+        <button onClick={() => setActiveYear('all')}
+          className={`px-4 py-1.5 rounded-t-md text-sm font-semibold border border-b-0 ${
+            activeYear === 'all' ? 'bg-white border-slate-300 text-blue-700 -mb-px' : 'bg-slate-200/70 text-slate-600 hover:bg-slate-100 border-transparent'
+          }`}>
+          Все годы ({events.length})
+        </button>
+        {years.list.map((y) => {
+          const cnt = events.filter((e) => getYear(e.date) === y).length;
+          return (
+            <button key={y} onClick={() => setActiveYear(y)}
+              className={`px-4 py-1.5 rounded-t-md text-sm font-semibold border border-b-0 ${
+                activeYear === y ? 'bg-white border-slate-300 text-blue-700 -mb-px' : 'bg-slate-200/70 text-slate-600 hover:bg-slate-100 border-transparent'
+              }`}>
+              {y} г. ({cnt})
+            </button>
+          );
+        })}
+        {years.hasNoDate && (
+          <button onClick={() => setActiveYear('nodate')}
+            className={`px-4 py-1.5 rounded-t-md text-sm font-semibold border border-b-0 ${
+              activeYear === 'nodate' ? 'bg-white border-slate-300 text-blue-700 -mb-px' : 'bg-slate-200/70 text-slate-600 hover:bg-slate-100 border-transparent'
+            }`}>
+            Без даты ({events.filter((e) => !getYear(e.date)).length})
+          </button>
+        )}
       </div>
 
       {/* Таблица */}
       <main className="max-w-[1800px] mx-auto p-4">
-        <div className="bg-white rounded-lg shadow overflow-auto border" style={{ maxHeight: 'calc(100vh - 190px)' }}>
-          <table className="border-collapse text-sm w-full" style={{ minWidth: 1700 }}>
+        <div className="bg-white rounded-lg shadow overflow-auto border" style={{ maxHeight: 'calc(100vh - 230px)' }}>
+          <table className="border-collapse text-sm w-full" style={{ minWidth: 1750 }}>
             <thead className="sticky top-0 z-20">
               <tr className="bg-slate-700 text-white">
-                <th className="border border-slate-600 px-2 py-2 w-10">№</th>
+                <th className="border border-slate-600 px-2 py-2 w-16 relative">
+                  <div className="flex items-center gap-1">
+                    <span className="font-semibold">№</span>
+                    <button className={`ml-auto shrink-0 ${colFilters.get('num')?.size ? 'text-amber-300' : 'text-slate-300 hover:text-white'}`}
+                      onClick={(ev) => setOpenFilterCol(openFilterCol?.key === 'num' ? null : { key: 'num', rect: (ev.currentTarget as HTMLElement).getBoundingClientRect() })}
+                      title="Фильтр по номеру события">
+                      <Filter size={13} />
+                    </button>
+                  </div>
+                  {openFilterCol?.key === 'num' && (
+                    <ColumnFilterPopover
+                      colKey={'num' as keyof OutageEvent} title="Номер события" events={events}
+                      selected={colFilters.get('num' as keyof OutageEvent) ?? new Set()}
+                      onApply={(vals) => {
+                        setColFilters((prev) => {
+                          const m = new Map(prev);
+                          if (vals.size === 0) m.delete('num' as keyof OutageEvent); else m.set('num' as keyof OutageEvent, vals);
+                          return m;
+                        });
+                        setOpenFilterCol(null);
+                      }}
+                      onClose={() => setOpenFilterCol(null)}
+                      anchorRect={openFilterCol.rect}
+                    />
+                  )}
+                </th>
                 {COLUMNS.map((col) => {
                   const hasFilter = colFilters.get(col.key)?.size;
                   return (
@@ -519,13 +682,13 @@ export default function App() {
                         <span className="font-semibold leading-tight">{col.title}</span>
                         {col.key !== 'oscillograms' && (
                           <button className={`ml-auto shrink-0 ${hasFilter ? 'text-amber-300' : 'text-slate-300 hover:text-white'}`}
-                            onClick={() => setOpenFilterCol(openFilterCol === col.key ? null : col.key)}
+                            onClick={(ev) => setOpenFilterCol(openFilterCol?.key === col.key ? null : { key: col.key, rect: (ev.currentTarget as HTMLElement).getBoundingClientRect() })}
                             title="Фильтр по столбцу">
                             <Filter size={13} />
                           </button>
                         )}
                       </div>
-                      {openFilterCol === col.key && (
+                      {openFilterCol?.key === col.key && (
                         <ColumnFilterPopover
                           colKey={col.key} title={col.title} events={events}
                           selected={colFilters.get(col.key) ?? new Set()}
@@ -538,6 +701,7 @@ export default function App() {
                             setOpenFilterCol(null);
                           }}
                           onClose={() => setOpenFilterCol(null)}
+                          anchorRect={openFilterCol.rect}
                         />
                       )}
                     </th>
@@ -560,14 +724,22 @@ export default function App() {
                 const incomplete = isIncomplete(e);
                 return (
                   <tr key={e.id}
-                    className={e.refusal ? 'bg-red-600 text-white' : i % 2 ? 'bg-slate-50' : 'bg-white'}
-                    onMouseLeave={() => hoveredOsc?.evId === e.id && setHoveredOsc(null)}>
-                    <td className={`border px-2 py-1 text-center align-top ${e.refusal ? 'border-red-500' : 'border-slate-200'}`}>{i + 1}</td>
+                    className={e.refusal ? 'bg-red-600 text-white' : i % 2 ? 'bg-slate-50' : 'bg-white'}>
+                    <td className={`border px-2 py-1 text-center align-top ${e.refusal ? 'border-red-500' : 'border-slate-200'}`}>{e.num ?? i + 1}</td>
                     {COLUMNS.map((col) => {
                       if (col.key === 'oscillograms') {
                         return (
                           <td key="osc" className={`border px-2 py-1 align-top ${e.refusal ? 'border-red-500' : 'border-slate-200'}`}
-                            onMouseEnter={(ev) => e.oscillograms.length > 0 && setHoveredOsc({ evId: e.id, x: ev.clientX, y: ev.clientY })}>
+                            onMouseEnter={(ev) => {
+                              if (e.oscillograms.length === 0) return;
+                              if (oscHideTimer.current) { window.clearTimeout(oscHideTimer.current); oscHideTimer.current = null; }
+                              setHoveredOsc({ evId: e.id, x: ev.clientX, y: ev.clientY });
+                            }}
+                            onMouseLeave={() => {
+                              // не скрывать сразу — даём время перевести курсор в тултип
+                              if (oscHideTimer.current) window.clearTimeout(oscHideTimer.current);
+                              oscHideTimer.current = window.setTimeout(() => setHoveredOsc(null), 350);
+                            }}>
                             {e.oscillograms.length > 0 ? (
                               <span className={`inline-flex items-center gap-1 cursor-help ${e.refusal ? 'text-white' : 'text-blue-700'}`}>
                                 <FileText size={14} /> {e.oscillograms.length} шт.
@@ -610,17 +782,18 @@ export default function App() {
       </main>
 
       {/* Тултип с осциллограммами при наведении */}
-      {hoveredOsc && hoveredEvent && hoveredEvent.oscillograms.length > 0 && (
-        <div className="fixed z-40 bg-white border border-slate-300 rounded-lg shadow-xl p-3 w-80 pointer-events-auto"
+      {hoveredOsc && hoveredEvent && hoveredEvent.oscillograms.length > 0 && createPortal(
+        <div className="fixed z-[90] bg-white border border-slate-300 rounded-lg shadow-xl p-3 w-80"
           style={{
             left: Math.min(hoveredOsc.x + 12, window.innerWidth - 340),
-            top: Math.min(hoveredOsc.y + 12, window.innerHeight - 320),
+            top: Math.min(hoveredOsc.y + 12, window.innerHeight - 340),
           }}
+          onMouseEnter={() => { if (oscHideTimer.current) { window.clearTimeout(oscHideTimer.current); oscHideTimer.current = null; } }}
           onMouseLeave={() => setHoveredOsc(null)}>
           <div className="text-xs font-bold mb-2 text-slate-600">Осциллограммы: {hoveredEvent.line || 'без линии'}</div>
           <div className="space-y-2 max-h-72 overflow-y-auto">
             {hoveredEvent.oscillograms.map((o) => (
-              <div key={o.id} className="border rounded p-1 cursor-pointer hover:bg-slate-50" onClick={() => setLightbox(o)}>
+              <div key={o.id} className="border rounded p-1 cursor-pointer hover:bg-slate-50" onClick={() => { setLightbox(o); setHoveredOsc(null); }}>
                 <div className="text-xs truncate mb-1">{o.name}</div>
                 {o.type.startsWith('image/') ? (
                   <img src={o.dataUrl} alt={o.name} className="w-full max-h-32 object-contain bg-slate-50 rounded" />
@@ -630,12 +803,13 @@ export default function App() {
               </div>
             ))}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Лайтбокс просмотра осциллограммы */}
-      {lightbox && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center" onClick={() => setLightbox(null)}>
+      {lightbox && createPortal(
+        <div className="fixed inset-0 bg-black/80 z-[100] flex items-center justify-center" onClick={() => setLightbox(null)}>
           <div className="max-w-[90vw] max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="text-white text-sm mb-2 flex items-center gap-3">
               <span className="truncate">{lightbox.name}</span>
@@ -651,7 +825,8 @@ export default function App() {
               <div className="bg-white p-6 rounded text-sm">Предпросмотр недоступен. <a className="text-blue-600 underline" href={lightbox.dataUrl} download={lightbox.name}>Скачать файл</a></div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Модальные окна */}

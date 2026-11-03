@@ -7,6 +7,7 @@ export interface Oscillogram {
 
 export interface OutageEvent {
   id: string;
+  num?: number;              // номер события (присваивается при импорте/добавлении)
   date: string;            // "дд.мм.гггг чч:мм" — дата и время отключения
   line: string;            // "ПС №1 - ПС №2"
   voltage: string;         // "330" | "110" | "35" | ...
@@ -89,4 +90,12 @@ export function formatDateStr(d: Date): string {
 
 export function nowDateStr(): string {
   return formatDateStr(new Date());
+}
+
+// ---- Год события (из даты "дд.мм.гггг чч:мм") ----
+export function getYear(s: string): number | null {
+  const m = s.match(/\.\s*(\d{4})/) ?? s.match(/(\d{4})/);
+  if (!m) return null;
+  const y = +m[1];
+  return y >= 1900 && y <= 2999 ? y : null;
 }
