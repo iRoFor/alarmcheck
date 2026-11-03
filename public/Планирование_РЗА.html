@@ -112,6 +112,8 @@ tbody tr:hover{background:#f9fafb}
 <button class="btn btn-blue" onclick="openForm()">➕ Добавить запись</button>
 <button class="btn btn-green" onclick="exportExcel()">📥 Экспорт в Excel</button>
 <label class="btn btn-purple" style="cursor:pointer">📤 Импорт из Excel<input type="file" accept=".xlsx,.xls,.csv" onchange="importExcel(event)" style="display:none"></label>
+<button class="btn btn-orange" onclick="saveToFile()" id="saveBtn" title="Сохранить данные прямо в этот файл">💾 Сохранить</button>
+<span id="saveStatus" style="font-size:11px;color:#6b7280;"></span>
 <div style="flex:1"></div>
 <input type="text" class="search-input" placeholder="Поиск..." oninput="searchText=this.value;render()">
 <button class="btn btn-gray" onclick="toggleFilters()">🔍 Фильтры <span id="filterCount"></span></button>
@@ -280,6 +282,110 @@ function deleteRecord(id){if(confirm('Удалить запись?')){records=re
 function exportExcel(){const data=records.map((r,i)=>({'№':i+1,'Присоединение':r.connection,'Наименование устройства':r.deviceName,'Вид последнего ТО':r.lastMaintenanceType,'Дата последнего обслуживания':r.lastMaintenanceDate,'Включен в план на текущий год':r.includedInPlan?'Да':'Нет','Фактический вид обслуживания':r.actualMaintenanceType,'Фактическая дата выполнения':r.actualMaintenanceDate,'Запланированный месяц':r.plannedMonth,'Запланированный год':r.plannedYear}));const ws=XLSX.utils.json_to_sheet(data);ws['!cols']=[{wch:5},{wch:25},{wch:30},{wch:20},{wch:20},{wch:15},{wch:25},{wch:20},{wch:15},{wch:15}];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'План РЗА');XLSX.writeFile(wb,'РЗА_план_'+currentYear+'.xlsx')}
 
 function importExcel(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=function(ev){try{const d=new Uint8Array(ev.target.result),wb=XLSX.read(d,{type:'array'}),ws=wb.Sheets[wb.SheetNames[0]],j=XLSX.utils.sheet_to_json(ws);const imp=j.map((row,i)=>({id:'imp-'+Date.now()+'-'+i,connection:String(row['Присоединение']||''),deviceName:String(row['Наименование устройства']||''),lastMaintenanceType:String(row['Вид последнего ТО']||''),lastMaintenanceDate:String(row['Дата последнего обслуживания']||''),includedInPlan:String(row['Включен в план на текущий год']||'').toLowerCase()==='да'||row['Включен в план на текущий год']===true,actualMaintenanceType:String(row['Фактический вид обслуживания']||''),actualMaintenanceDate:String(row['Фактическая дата выполнения']||''),plannedMonth:Number(row['Запланированный месяц']||0),plannedYear:Number(row['Запланированный год']||currentYear)}));records=[...records,...imp];saveData();render();alert('Импортировано: '+imp.length)}catch(err){alert('Ошибка: '+err.message)}e.target.value=''};r.readAsArrayBuffer(f)}
+
+// === СОХРАНЕНИЕ В ФАЙЛ ===
+let fileHandle=null;
+
+// Загрузка сохранённого handle из IndexedDB
+async function loadFileHandle(){
+try{
+const db=await new Promise((res,rej)=>{const r=indexedDB.open('rza_db',1);r.onupgradeneeded=()=>r.result.createObjectStore('handles');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+return await new Promise((res,rej)=>{const tx=db.transaction('handles','readonly');const s=tx.objectStore('handles');const req=s.get('mainFile');req.onsuccess=()=>res(req.result);req.onerror=()=>rej(req.error)})
+}catch(e){return null}}
+
+// Сохранение handle в IndexedDB
+async function saveFileHandle(handle){
+try{
+const db=await new Promise((res,rej)=>{const r=indexedDB.open('rza_db',1);r.onupgradeneeded=()=>r.result.createObjectStore('handles');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+await new Promise((res,rej)=>{const tx=db.transaction('handles','readwrite');const s=tx.objectStore('handles');s.put(handle,'mainFile');tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error)})
+}catch(e){console.error(e)}}
+
+// Генерация HTML с встроенными данными
+function generateHTMLWithData(){
+let html='<!DOCTYPE html>\n'+document.documentElement.outerHTML;
+// Встраиваем текущие данные прямо в HTML
+const dataScript='\n<script>const EMBEDDED_DATA='+JSON.stringify(records)+';<\/script>\n';
+// Вставляем перед закрывающим </head>
+html=html.replace('</head>',dataScript+'</head>');
+// Модифицируем loadData чтобы сначала читал EMBEDDED_DATA
+html=html.replace(
+"function loadData(){const s=localStorage.getItem('rza_records');if(s)try{records=JSON.parse(s)}catch(e){records=getSampleData()}else records=getSampleData();render()}",
+"function loadData(){const s=localStorage.getItem('rza_records');if(s)try{records=JSON.parse(s)}catch(e){records=typeof EMBEDDED_DATA!=='undefined'&&EMBEDDED_DATA?EMBEDDED_DATA:getSampleData()}else records=typeof EMBEDDED_DATA!=='undefined'&&EMBEDDED_DATA?EMBEDDED_DATA:getSampleData();render()}"
+);
+return html}
+
+// Основная функция сохранения
+async function saveToFile(){
+const statusEl=document.getElementById('saveStatus');
+try{
+// Если нет handle — запрашиваем
+if(!fileHandle){
+if(!window.showSaveFilePicker){
+alert('Ваш браузер не поддерживает прямое сохранение в файл.\nИспользуйте Chrome или Edge.\n\nКак альтернатива — используйте "Экспорт в Excel" для резервного копирования.');
+return}
+fileHandle=await window.showSaveFilePicker({
+suggestedName:'Планирование_РЗА.html',
+types:[{description:'HTML файл',accept:{'text/html':['.html']}}]
+});
+await saveFileHandle(fileHandle)}
+
+// Проверяем разрешение
+const perms=await fileHandle.queryPermission({mode:'readwrite'});
+if(perms!=='granted'){
+const req=await fileHandle.requestPermission({mode:'readwrite'});
+if(req!=='granted'){statusEl.textContent='⚠️ Доступ запрещён';return}}
+
+// Записываем данные в файл
+const writable=await fileHandle.createWritable();
+await writable.write(generateHTMLWithData());
+await writable.close();
+
+statusEl.textContent='✅ Сохранено!';
+statusEl.style.color='#16a34a';
+setTimeout(()=>{statusEl.textContent='';statusEl.style.color='#6b7280'},3000)
+}catch(e){
+if(e.name==='AbortError'){statusEl.textContent='';return}
+console.error(e);
+statusEl.textContent='❌ Ошибка сохранения';
+statusEl.style.color='#dc2626';
+fileHandle=null;
+setTimeout(()=>{statusEl.textContent='';statusEl.style.color='#6b7280'},3000)}}
+
+// Автосохранение (если есть handle)
+let autoSaveTimer=null;
+function scheduleAutoSave(){
+if(!fileHandle)return;
+clearTimeout(autoSaveTimer);
+autoSaveTimer=setTimeout(async()=>{
+try{
+const perms=await fileHandle.queryPermission({mode:'readwrite'});
+if(perms!=='granted')return;
+const writable=await fileHandle.createWritable();
+await writable.write(generateHTMLWithData());
+await writable.close();
+const statusEl=document.getElementById('saveStatus');
+statusEl.textContent='💾 Автосохранение...';
+statusEl.style.color='#2563eb';
+setTimeout(()=>{statusEl.textContent='';statusEl.style.color='#6b7280'},2000)
+}catch(e){console.error('Автосохранение:',e)}
+},2000)}
+
+// Переопределяем saveData чтобы добавлять автосохранение
+const _origSaveData=saveData;
+saveData=function(){_origSaveData();scheduleAutoSave()};
+
+// При загрузке страницы — восстанавливаем handle
+(async()=>{
+const saved=await loadFileHandle();
+if(saved){
+try{
+const perms=await saved.queryPermission({mode:'readwrite'});
+if(perms==='granted'){
+fileHandle=saved;
+document.getElementById('saveStatus').textContent='🔗 Файл подключён';
+setTimeout(()=>{document.getElementById('saveStatus').textContent=''},3000)
+}}catch(e){}}}
+)();
 
 loadData();
 </script>
