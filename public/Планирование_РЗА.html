@@ -40,6 +40,7 @@ main{max-width:1200px;margin:0 auto;padding:24px 16px}
 .chip.active-red{border-color:#ef4444;background:#fef2f2;color:#b91c1c}
 .chip.active-yellow{border-color:#eab308;background:#fefce8;color:#a16207}
 .chip.active-blue{border-color:#3b82f6;background:#eff6ff;color:#1d4ed8}
+.chip.active-gray{border-color:#6b7280;background:#f3f4f6;color:#374151}
 .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
 .dot-green{background:#22c55e}.dot-red{background:#ef4444}.dot-yellow{background:#eab308}.dot-blue{background:#3b82f6}
 .legend{background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08);padding:16px;margin-bottom:16px}
@@ -112,8 +113,8 @@ tbody tr:hover{background:#f9fafb}
 <button class="btn btn-blue" onclick="openForm()">➕ Добавить запись</button>
 <button class="btn btn-green" onclick="exportExcel()">📥 Экспорт в Excel</button>
 <label class="btn btn-purple" style="cursor:pointer">📤 Импорт из Excel<input type="file" accept=".xlsx,.xls,.csv" onchange="importExcel(event)" style="display:none"></label>
-<button class="btn btn-orange" onclick="saveToFile()" id="saveBtn" title="Сохранить данные прямо в этот файл">💾 Сохранить</button>
-<button class="btn btn-gray btn-sm" onclick="showCloseDialog()" title="Закрыть программу">✕ Закрыть</button>
+<button class="btn btn-gray" onclick="saveToFile()" id="saveBtn" title="Сохранить данные прямо в этот файл">💾 Сохранить</button>
+<button class="btn btn-gray" onclick="showCloseDialog()" title="Закрыть программу">✕ Закрыть</button>
 <span id="saveStatus" style="font-size:11px;color:#6b7280;"></span>
 <div style="flex:1"></div>
 <input type="text" class="search-input" placeholder="Поиск..." oninput="searchText=this.value;render()">
@@ -129,6 +130,7 @@ tbody tr:hover{background:#f9fafb}
 <button class="chip" data-marker="overdue" onclick="toggleMarker('overdue')"><span class="dot dot-red"></span> Невыполнено в срок</button>
 <button class="chip" data-marker="plannedCurrentMonth" onclick="toggleMarker('plannedCurrentMonth')"><span class="dot dot-yellow"></span> План на текущий месяц</button>
 <button class="chip" data-marker="plannedNextMonth" onclick="toggleMarker('plannedNextMonth')"><span class="dot dot-blue"></span> План на следующий месяц</button>
+<button class="chip" data-marker="inPlan" onclick="toggleMarker('inPlan')" style="border-color:#6b7280"><span class="dot" style="background:#6b7280"></span> Включен в план текущего года</button>
 </div>
 <p id="filterInfo" style="font-size:11px;color:#6b7280;margin-top:8px;display:none"></p>
 </div>
@@ -142,6 +144,7 @@ tbody tr:hover{background:#f9fafb}
 <div class="legend-item"><span class="dot dot-red"></span> Невыполнено в срок</div>
 <div class="legend-item"><span class="dot dot-yellow"></span> Запланировано на текущий месяц</div>
 <div class="legend-item"><span class="dot dot-blue"></span> Запланировано на следующий месяц</div>
+<div class="legend-item"><span class="dot" style="background:#6b7280"></span> Включен в план текущего года</div>
 </div>
 <div class="legend-types">
 <h4>Виды обслуживания:</h4>
@@ -266,14 +269,23 @@ function getRowClass(m){return{completed:'row-green',overdue:'row-red',plannedCu
 function getDotClass(m){return{completed:'dot-green',overdue:'dot-red',plannedCurrentMonth:'dot-yellow',plannedNextMonth:'dot-blue',none:''}[m]||''}
 
 function render(){
-const filtered=records.filter(r=>{const m=getMarkerType(r);if(activeMarkers.length>0&&!activeMarkers.includes(m))return false;if(searchText){const s=searchText.toLowerCase();return r.connection.toLowerCase().includes(s)||r.deviceName.toLowerCase().includes(s)||r.lastMaintenanceType.toLowerCase().includes(s)||(r.actualMaintenanceType||'').toLowerCase().includes(s)}return true});
+const filtered=records.filter(r=>{
+const m=getMarkerType(r);
+// Проверка цветовых маркеров
+const colorMarkers=activeMarkers.filter(x=>x!=='inPlan');
+if(colorMarkers.length>0&&!colorMarkers.includes(m))return false;
+// Проверка фильтра "Включен в план текущего года"
+if(activeMarkers.includes('inPlan')){
+if(!(r.includedInPlan&&r.plannedYear===currentYear))return false;
+}
+if(searchText){const s=searchText.toLowerCase();return r.connection.toLowerCase().includes(s)||r.deviceName.toLowerCase().includes(s)||r.lastMaintenanceType.toLowerCase().includes(s)||(r.actualMaintenanceType||'').toLowerCase().includes(s)}return true});
 document.getElementById('statTotal').textContent=records.length;
 document.getElementById('statCompleted').textContent=records.filter(r=>getMarkerType(r)==='completed').length;
 document.getElementById('statOverdue').textContent=records.filter(r=>getMarkerType(r)==='overdue').length;
 document.getElementById('statPlannedCurrent').textContent=records.filter(r=>getMarkerType(r)==='plannedCurrentMonth').length;
 document.getElementById('statPlannedNext').textContent=records.filter(r=>getMarkerType(r)==='plannedNextMonth').length;
 document.getElementById('totalCount').textContent=records.length;
-document.querySelectorAll('.chip').forEach(c=>{const m=c.dataset.marker,a=activeMarkers.includes(m);c.className='chip'+(a?' active-'+{completed:'green',overdue:'red',plannedCurrentMonth:'yellow',plannedNextMonth:'blue'}[m]:'')});
+document.querySelectorAll('.chip').forEach(c=>{const m=c.dataset.marker,a=activeMarkers.includes(m);c.className='chip'+(a?' active-'+{completed:'green',overdue:'red',plannedCurrentMonth:'yellow',plannedNextMonth:'blue',inPlan:'gray'}[m]:'')});
 document.getElementById('filterCount').textContent=activeMarkers.length>0?activeMarkers.length:'';
 const fi=document.getElementById('filterInfo');
 if(activeMarkers.length>0){fi.style.display='block';fi.textContent='Выбрано фильтров: '+activeMarkers.length+' | Показано: '+filtered.length+' из '+records.length}else fi.style.display='none';
