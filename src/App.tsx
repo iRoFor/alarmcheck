@@ -408,17 +408,46 @@ export default function App() {
   };
 
   // скачивание всех осциллограмм ячейки (одна кнопка для всех файлов)
-  const downloadAllOsc = (list: Oscillogram[]) => {
-    list.forEach((o, idx) => {
-      setTimeout(() => {
-        const a = document.createElement('a');
-        a.href = o.dataUrl;
-        a.download = o.name || `oscillogram_${idx + 1}`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      }, idx * 250);
-    });
+  // файлы упаковываются в один ZIP-архив — браузер не блокирует множественную загрузку
+  const downloadAllOsc = async (list: Oscillogram[], eventId?: number) => {
+    if (list.length === 1) {
+      const a = document.createElement('a');
+      a.href = list[0].dataUrl;
+      a.download = list[0].name || 'oscillogram';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      return;
+    }
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      const usedNames = new Set<string>();
+      list.forEach((o, idx) => {
+        let name = (o.name || `oscillogram_${idx + 1}`).replace(/[\\/:*?"<>|]/g, '_');
+        let finalName = name;
+        let dupIdx = 2;
+        while (usedNames.has(finalName)) {
+          const dot = name.lastIndexOf('.');
+          finalName = dot > 0 ? `${name.slice(0, dot)}_${dupIdx}${name.slice(dot)}` : `${name}_${dupIdx}`;
+          dupIdx++;
+        }
+        usedNames.add(finalName);
+        const base64 = o.dataUrl.split(',')[1] || '';
+        zip.file(finalName, base64, { base64: true });
+      });
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Осциллограммы_событие_${eventId ?? ''}.zip`.replace('__', '_');
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (e) {
+      setToast('Не удалось упаковать файлы в архив');
+    }
   };
   const [lightbox, setLightbox] = useState<Oscillogram | null>(null);
   const [toast, setToast] = useState<string>('');
@@ -840,7 +869,7 @@ export default function App() {
             <button title="Скачать все файлы ячейки"
               className="shrink-0 inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white"
               onMouseDown={() => { oscPinned.current = true; }}
-              onClick={(ev) => { ev.stopPropagation(); downloadAllOsc(hoveredEvent.oscillograms); }}>
+              onClick={(ev) => { ev.stopPropagation(); downloadAllOsc(hoveredEvent.oscillograms, hoveredEvent.num); }}>
               <Download size={12} /> Скачать все ({hoveredEvent.oscillograms.length})
             </button>
           </div>
