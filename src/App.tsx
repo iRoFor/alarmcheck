@@ -79,7 +79,7 @@ function EventForm({
   };
 
   const field = (label: string, key: keyof OutageEvent, placeholder = '') => {
-    const multiline = ['notes', 'cause', 'analysis', 'rzaAdjacent', 'rzaPs1', 'rzaPs2', 'ompCalc', 'ompReal'].includes(String(key));
+    const multiline = ['notes', 'cause', 'analysis', 'rzaAdjacent'].includes(String(key));
     return (
     <label className="block">
       <span className="text-xs font-semibold text-slate-600">{label}</span>
@@ -590,13 +590,26 @@ export default function App() {
 
   const confirmImport = (bySheet: Map<string, OutageEvent[]>) => {
     const incoming: OutageEvent[] = [];
+    // защита от дубликатов по дате (среди импортируемых и существующих событий)
+    const seenDates = new Set<string>();
+    let skipped = 0;
     // сортировка листов по году при импорте
     const ordered = [...bySheet.entries()].sort((a, b) => {
       const ya = getYear(a[1][0]?.date ?? '') ?? a[0].match(/(19|20)\d{2}/)?.[0] as any;
       const yb = getYear(b[1][0]?.date ?? '') ?? b[0].match(/(19|20)\d{2}/)?.[0] as any;
       return Number(ya ?? 0) - Number(yb ?? 0);
     });
-    ordered.forEach(([, list]) => incoming.push(...list));
+    ordered.forEach(([, list]) => {
+      for (const e of list) {
+        const dateKey = (e.date ?? '').trim();
+        if (dateKey && (events.some(ev => ev.date === dateKey) || seenDates.has(dateKey))) {
+          skipped++;
+          continue; // событие с такой датой уже есть — пропускаем
+        }
+        seenDates.add(dateKey);
+        incoming.push(e);
+      }
+    });
     setEvents((prev) => {
       const maxNum = prev.reduce((m, e) => Math.max(m, e.num ?? 0), 0);
       let n = maxNum;
@@ -609,7 +622,7 @@ export default function App() {
       const lastYear = [...incoming].reverse().map((e) => getYear(e.date)).find((y) => y != null);
       if (lastYear) setActiveYear(lastYear);
     }
-    showToast(`Импортировано событий: ${incoming.length}`);
+    showToast(`Импортировано событий: ${incoming.length}${skipped > 0 ? ` (дубликаты пропущены: ${skipped})` : ''}`);
   };
 
   const exitWithoutSave = () => {

@@ -88,7 +88,7 @@ export interface ParsedSheet {
 }
 
 export function parseWorkbook(data: ArrayBuffer): ParsedSheet[] {
-  const wb = XLSX.read(data, { type: 'array', cellDates: true });
+  const wb = XLSX.read(data, { type: 'array', cellDates: true, cellStyles: true });
   const sheets: ParsedSheet[] = [];
 
   for (const sheetName of wb.SheetNames) {
@@ -119,6 +119,16 @@ export function parseWorkbook(data: ArrayBuffer): ParsedSheet[] {
     const ym = sheetName.match(/(19|20)\d{2}/);
     const year = ym ? parseInt(ym[0], 10) : null;
 
+    // координаты строки заголовков в листе (для доступа к ячейкам через ref)
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+    const firstRow = range.s.r;
+
+    const isRedCell = (cell: any): boolean =>
+      !!cell?.s && (
+        cell.s.fgColor?.rgb === 'FFFF0000' ||
+        cell.s.bgColor?.rgb === 'FFFF0000'
+      );
+
     const events: OutageEvent[] = [];
     for (let r = headerIdx + 1; r < aoa.length; r++) {
       const rowArr = aoa[r];
@@ -144,6 +154,13 @@ export function parseWorkbook(data: ArrayBuffer): ParsedSheet[] {
           (ev as any)[col.targetKey] = s;
         }
       });
+
+      // распознавание отказов по красному цвету ячеек в строке
+      const actualRow = firstRow + r;
+      for (let c = range.s.c; c <= range.e.c; c++) {
+        const cellRef = XLSX.utils.encode_cell({ r: actualRow, c });
+        if (isRedCell(ws[cellRef])) { ev.refusal = true; break; }
+      }
 
       // если в дате нет года, а лист задан годом — подставить год листа
       if (ev.date && year) {
