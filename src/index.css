@@ -1,1 +1,4 @@
 @import "tailwindcss";
+
+/* Изменение ширины столбцов перетаскиванием за правую границу заголовка */
+th { resize: horizontal; overflow: auto; min-width: 80px; cursor: col-resize; }

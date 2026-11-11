@@ -1,7 +1,7 @@
 export interface Oscillogram {
   id: string;
   name: string;
-  dataUrl: string; // base64 data URL
+  fileName: string; // имя файла в папке "Осциллограммы" (относительная ссылка)
   type: string;
 }
 
@@ -44,7 +44,7 @@ export const VOLTAGE_OPTIONS = ['330', '110', '35'];
 // Поля, обязательные для того, чтобы событие считалось "оформленным"
 export const REQUIRED_FIELDS: (keyof OutageEvent)[] = [
   'date', 'line', 'voltage', 'rzaPs1', 'rzaPs2',
-  'cause', 'ompCalc', 'ompReal', 'analysis', 'rzaAdjacent', 'notes',
+  'cause', 'ompCalc', 'ompReal', 'analysis',
 ];
 
 export function isIncomplete(e: OutageEvent): boolean {

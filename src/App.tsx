@@ -64,31 +64,44 @@ function EventForm({
   // нормализация номера при вводе (только цифры)
   const numStr = ev.num == null ? '' : String(ev.num);
 
+  // Осциллограммы хранятся как относительные ссылки: файл кладётся в папку "Осциллограммы"
+  // рядом с html-страницей; в ячейке указывается только имя файла.
+  const oscUrl = (o: Oscillogram) => encodeURI(`Осциллограммы/${o.fileName}`);
+
   const addOscFiles = (files: FileList | null) => {
     if (!files) return;
     Array.from(files).forEach((f) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        setEv((p) => ({
-          ...p,
-          oscillograms: [...p.oscillograms, { id: crypto.randomUUID(), name: f.name, dataUrl: reader.result as string, type: f.type }],
-        }));
-      };
-      reader.readAsDataURL(f);
+      setEv((p) => ({
+        ...p,
+        oscillograms: [...p.oscillograms, { id: crypto.randomUUID(), name: f.name, fileName: f.name, type: f.type }],
+      }));
     });
   };
 
-  const field = (label: string, key: keyof OutageEvent, placeholder = '') => (
+  const field = (label: string, key: keyof OutageEvent, placeholder = '') => {
+    const multiline = ['notes', 'cause', 'analysis', 'rzaAdjacent'].includes(String(key));
+    return (
     <label className="block">
       <span className="text-xs font-semibold text-slate-600">{label}</span>
+      {multiline ? (
+        <textarea
+          rows={3}
+          className="mt-1 w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          value={(ev as any)[key] ?? ''}
+          onChange={(e) => set(key, e.target.value)}
+          placeholder={placeholder}
+        />
+      ) : (
       <input
         className="mt-1 w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         value={(ev as any)[key] ?? ''}
         onChange={(e) => set(key, e.target.value)}
         placeholder={placeholder}
       />
+      )}
     </label>
-  );
+    );
+  };
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 overflow-y-auto py-8" onClick={onClose}>
@@ -409,11 +422,13 @@ export default function App() {
 
   // скачивание всех осциллограмм ячейки (одна кнопка для всех файлов)
   // файлы упаковываются в один ZIP-архив — браузер не блокирует множественную загрузку
+  const oscUrl = (o: Oscillogram) => encodeURI(`Осциллограммы/${o.fileName}`);
+
   const downloadAllOsc = async (list: Oscillogram[], eventId?: number) => {
     if (list.length === 1) {
       const a = document.createElement('a');
-      a.href = list[0].dataUrl;
-      a.download = list[0].name || 'oscillogram';
+      a.href = oscUrl(list[0]);
+      a.download = list[0].fileName || 'oscillogram';
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -423,8 +438,8 @@ export default function App() {
       const JSZip = (await import('jszip')).default;
       const zip = new JSZip();
       const usedNames = new Set<string>();
-      list.forEach((o, idx) => {
-        let name = (o.name || `oscillogram_${idx + 1}`).replace(/[\\/:*?"<>|]/g, '_');
+      await Promise.all(list.map(async (o, idx) => {
+        let name = (o.fileName || `oscillogram_${idx + 1}`).replace(/[\\/:*?"<>|]/g, '_');
         let finalName = name;
         let dupIdx = 2;
         while (usedNames.has(finalName)) {
@@ -433,9 +448,10 @@ export default function App() {
           dupIdx++;
         }
         usedNames.add(finalName);
-        const base64 = o.dataUrl.split(',')[1] || '';
-        zip.file(finalName, base64, { base64: true });
-      });
+        const resp = await fetch(oscUrl(o));
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        zip.file(finalName, await resp.blob());
+      }));
       const blob = await zip.generateAsync({ type: 'blob' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -446,7 +462,7 @@ export default function App() {
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
     } catch (e) {
-      setToast('Не удалось упаковать файлы в архив');
+      setToast('Не удалось упаковать файлы в архив (проверьте наличие файлов в папке «Осциллограммы» рядом со страницей)');
     }
   };
   const [lightbox, setLightbox] = useState<Oscillogram | null>(null);
@@ -720,7 +736,7 @@ export default function App() {
       {/* Таблица */}
       <main className="max-w-[1800px] mx-auto p-4">
         <div className="bg-white rounded-lg shadow overflow-auto border" style={{ maxHeight: 'calc(100vh - 230px)' }}>
-          <table className="border-collapse text-sm w-full" style={{ minWidth: 1750 }}>
+          <table className="border-collapse text-sm w-full" style={{ minWidth: 1750, tableLayout: 'fixed' }}>
             <thead className="sticky top-0 z-20">
               <tr className="bg-slate-700 text-white">
                 <th className="border border-slate-600 px-2 py-2 w-16 relative">
@@ -826,7 +842,8 @@ export default function App() {
                       const empty = val.trim() === '';
                       return (
                         <td key={String(col.key)}
-                          className={`border px-2 py-1 align-top whitespace-pre-wrap break-words ${e.refusal ? 'border-red-500' : 'border-slate-200'}`}>
+                          className={`border px-2 py-1 align-top break-words ${e.refusal ? 'border-red-500' : 'border-slate-200'}`}
+                          style={{ whiteSpace: 'pre-wrap' }}>
                           {empty ? (
                             <span className={e.refusal ? 'text-red-200 italic' : 'text-slate-300 italic'}>пусто</span>
                           ) : col.key === 'voltage' ? `${val} кВ` : val}
@@ -878,13 +895,13 @@ export default function App() {
               <div key={o.id} className="border rounded p-1 cursor-pointer hover:bg-slate-50" onClick={() => { setLightbox(o); setHoveredOsc(null); }}>
                 <div className="flex items-center gap-1 mb-1">
                   <div className="text-xs truncate flex-1">{o.name}</div>
-                  <a href={o.dataUrl} download={o.name} title="Скачать файл"
+                  <a href={oscUrl(o)} download={o.name} title="Скачать файл"
                     className="shrink-0 text-blue-600 hover:text-blue-800"
                     onMouseDown={() => { oscPinned.current = true; }}
                     onClick={(ev) => ev.stopPropagation()}><Download size={13} /></a>
                 </div>
                 {o.type.startsWith('image/') ? (
-                  <img src={o.dataUrl} alt={o.name} className="w-full max-h-32 object-contain bg-slate-50 rounded" />
+                  <img src={oscUrl(o)} alt={o.name} className="w-full max-h-32 object-contain bg-slate-50 rounded" />
                 ) : (
                   <div className="text-xs text-slate-500 flex items-center gap-1"><FileText size={14} /> {o.type || 'файл'} — нажмите для открытия</div>
                 )}
@@ -901,16 +918,16 @@ export default function App() {
           <div className="max-w-[90vw] max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="text-white text-sm mb-2 flex items-center gap-3">
               <span className="truncate">{lightbox.name}</span>
-              <a href={lightbox.dataUrl} download={lightbox.name}
+              <a href={oscUrl(lightbox)} download={lightbox.name}
                 className="text-blue-300 underline shrink-0">Скачать</a>
               <button className="ml-auto text-white hover:text-red-300" onClick={() => setLightbox(null)}><X size={20} /></button>
             </div>
             {lightbox.type.startsWith('image/') ? (
-              <img src={lightbox.dataUrl} alt={lightbox.name} className="max-w-[90vw] max-h-[82vh] object-contain rounded bg-white" />
+              <img src={oscUrl(lightbox)} alt={lightbox.name} className="max-w-[90vw] max-h-[82vh] object-contain rounded bg-white" />
             ) : lightbox.type === 'application/pdf' ? (
-              <iframe src={lightbox.dataUrl} title={lightbox.name} className="w-[80vw] h-[80vh] bg-white rounded" />
+              <iframe src={oscUrl(lightbox)} title={lightbox.name} className="w-[80vw] h-[80vh] bg-white rounded" />
             ) : (
-              <div className="bg-white p-6 rounded text-sm">Предпросмотр недоступен. <a className="text-blue-600 underline" href={lightbox.dataUrl} download={lightbox.name}>Скачать файл</a></div>
+              <div className="bg-white p-6 rounded text-sm">Предпросмотр недоступен. <a className="text-blue-600 underline" href={oscUrl(lightbox)} download={lightbox.name}>Скачать файл</a></div>
             )}
           </div>
         </div>,
