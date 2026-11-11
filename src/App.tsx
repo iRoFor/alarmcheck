@@ -79,7 +79,7 @@ function EventForm({
   };
 
   const field = (label: string, key: keyof OutageEvent, placeholder = '') => {
-    const multiline = ['notes', 'cause', 'analysis', 'rzaAdjacent'].includes(String(key));
+    const multiline = ['notes', 'cause', 'analysis', 'rzaAdjacent', 'rzaPs1', 'rzaPs2', 'ompCalc', 'ompReal'].includes(String(key));
     return (
     <label className="block">
       <span className="text-xs font-semibold text-slate-600">{label}</span>
